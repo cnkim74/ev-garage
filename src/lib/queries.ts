@@ -73,6 +73,14 @@ export function useUpsertContract() {
       endDate: string;
       notes?: string | null;
     }) => {
+      // 차량당 약정 1건만 유지(교체). rent_contracts 에 생성시각이 없어
+      // start_date 정렬로 "최신"을 고르면 수정이 반영 안 되는 문제를 막기 위함.
+      const { error: delError } = await supabase
+        .from('rent_contracts')
+        .delete()
+        .eq('vehicle_id', c.vehicleId);
+      if (delError) throw delError;
+
       const { error } = await supabase.from('rent_contracts').insert({
         vehicle_id: c.vehicleId,
         contract_distance_km: c.contractDistanceKm,
