@@ -398,3 +398,15 @@ export function useUpdateDisplayName() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['family'] }),
   });
 }
+
+/** 충전 기록 삭제 */
+export function useDeleteChargeLog() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('charge_logs').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['charge_logs'] }),
+  });
+}

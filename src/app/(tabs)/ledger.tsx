@@ -6,8 +6,14 @@ import { Card, ScreenHeader } from '../../components/Card';
 import { DateField } from '../../components/DateField';
 import { Screen } from '../../components/Screen';
 import { TextField } from '../../components/TextField';
-import { notify } from '../../lib/notify';
-import { useAddChargeLog, useChargeLogs, useVehicles, type ChargeLog } from '../../lib/queries';
+import { confirmAsync, notify } from '../../lib/notify';
+import {
+  useAddChargeLog,
+  useChargeLogs,
+  useDeleteChargeLog,
+  useVehicles,
+  type ChargeLog,
+} from '../../lib/queries';
 import { colors } from '../../lib/theme';
 import { useAuth } from '../../providers/auth';
 
@@ -63,10 +69,62 @@ export default function Ledger() {
             </Card>
           )}
 
+          <RecentList logs={logs ?? []} />
+
           <AddChargeForm vehicles={vehicles ?? []} recordedBy={profile?.id} />
         </>
       )}
     </Screen>
+  );
+}
+
+function RecentList({ logs }: { logs: ChargeLog[] }) {
+  const del = useDeleteChargeLog();
+  if (logs.length === 0) return null;
+  const fmtDate = (iso: string) => {
+    const d = new Date(iso);
+    return `${d.getMonth() + 1}/${d.getDate()}`;
+  };
+
+  return (
+    <Card className="mb-4">
+      <Text className="mb-2 text-sm font-semibold text-ink">최근 기록</Text>
+      {logs.slice(0, 20).map((l, i) => (
+        <View
+          key={l.id}
+          className={`flex-row items-center justify-between py-2.5 ${
+            i > 0 ? 'border-t border-sand' : ''
+          }`}>
+          <View className="flex-1 pr-2">
+            <Text className="text-sm text-ink">
+              {fmtDate(l.charged_at)} · {l.operator?.trim() || '기타'}
+            </Text>
+            <Text className="mt-0.5 text-xs text-muted">
+              {l.kwh != null ? `${l.kwh} kWh` : '—'}
+              {l.cost_krw != null ? ` · ${won(l.cost_krw)}` : ''}
+            </Text>
+          </View>
+          <Pressable
+            hitSlop={6}
+            onPress={async () => {
+              const ok = await confirmAsync(
+                '충전 기록 삭제',
+                `${fmtDate(l.charged_at)} ${l.operator?.trim() || '기타'} 기록을 삭제할까요?`,
+                '삭제',
+              );
+              if (!ok) return;
+              try {
+                await del.mutateAsync(l.id);
+                notify('삭제 완료', '충전 기록을 삭제했어요.');
+              } catch (e: any) {
+                notify('오류', e?.message ?? '삭제 실패');
+              }
+            }}>
+            <Text className="text-sm font-semibold text-terracotta">삭제</Text>
+          </Pressable>
+        </View>
+      ))}
+    </Card>
   );
 }
 
