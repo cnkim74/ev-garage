@@ -7,6 +7,12 @@ import { Gauge } from '../../components/Gauge';
 import { Screen } from '../../components/Screen';
 import { TextField } from '../../components/TextField';
 import { computeContract, overageNotice, type ContractStatus } from '../../lib/contract';
+import {
+  scanFromCamera,
+  scanFromLibrary,
+  scanFromPdf,
+  type ScanResult,
+} from '../../lib/contractScan';
 import { notify } from '../../lib/notify';
 import {
   useAddOdoReading,
@@ -268,9 +274,38 @@ function ContractForm({
   );
   const [startDate, setStartDate] = useState(initial?.start_date ?? '');
   const [endDate, setEndDate] = useState(initial?.end_date ?? '');
+  const [scanning, setScanning] = useState(false);
   const upsert = useUpsertContract();
 
   const dateOk = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s.trim());
+
+  async function runScan(picker: () => Promise<ScanResult | null>) {
+    setScanning(true);
+    try {
+      const r = await picker();
+      if (!r) return; // 사용자가 취소
+      if (!r.found) {
+        notify('인식 실패', '계약서에서 약정 정보를 찾지 못했어요. 직접 입력해 주세요.');
+        return;
+      }
+      if (r.contract_distance_km != null) setDistance(String(r.contract_distance_km));
+      if (r.start_odo_km != null) setStartOdo(String(r.start_odo_km));
+      if (r.start_date) setStartDate(r.start_date);
+      if (r.end_date) setEndDate(r.end_date);
+      const summary = [
+        r.contract_distance_km != null ? `약정 ${r.contract_distance_km.toLocaleString()}km` : null,
+        r.start_date && r.end_date ? `${r.start_date} ~ ${r.end_date}` : null,
+        r.operator ? r.operator : null,
+      ]
+        .filter(Boolean)
+        .join(' · ');
+      notify('자동 입력 완료', `${summary || '값을 채웠어요'}\n\n계약서와 맞는지 확인 후 저장하세요.`);
+    } catch (e: any) {
+      notify('오류', e?.message ?? '계약서 인식에 실패했습니다.');
+    } finally {
+      setScanning(false);
+    }
+  }
 
   async function submit() {
     const dist = parseInt(distance, 10);
@@ -308,6 +343,32 @@ function ContractForm({
       <Text className="mb-3 mt-1 text-xs text-muted">
         렌트/리스 계약서의 약정 한도와 기간을 입력하면 페이스를 계산해 드려요.
       </Text>
+
+      <View className="mb-4 rounded-card border border-sand bg-cream p-3">
+        <Text className="text-sm font-semibold text-ink">📄 계약서로 자동 입력</Text>
+        <Text className="mb-3 mt-1 text-xs text-muted">
+          계약서 사진이나 PDF를 올리면 약정 한도·기간을 자동으로 채워드려요.
+        </Text>
+        {scanning ? (
+          <View className="flex-row items-center justify-center py-2">
+            <ActivityIndicator color={colors.terracotta} />
+            <Text className="ml-2 text-sm text-muted">계약서 인식 중…</Text>
+          </View>
+        ) : (
+          <View className="flex-row gap-2">
+            <View className="flex-1">
+              <Button variant="outline" label="카메라" onPress={() => runScan(scanFromCamera)} />
+            </View>
+            <View className="flex-1">
+              <Button variant="outline" label="갤러리" onPress={() => runScan(scanFromLibrary)} />
+            </View>
+            <View className="flex-1">
+              <Button variant="outline" label="PDF" onPress={() => runScan(scanFromPdf)} />
+            </View>
+          </View>
+        )}
+      </View>
+
       <TextField
         label="약정 한도 (km)"
         value={distance}
