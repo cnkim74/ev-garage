@@ -169,16 +169,17 @@ export function useNearbyStations(params: {
   lng?: number;
   zcode?: string;
   freeOnly?: boolean;
+  numOfRows?: number;
   enabled?: boolean;
 }) {
-  const { lat, lng, zcode, freeOnly, enabled = true } = params;
+  const { lat, lng, zcode, freeOnly, numOfRows = 250, enabled = true } = params;
   return useQuery({
-    queryKey: ['stations', lat, lng, zcode, freeOnly],
+    queryKey: ['stations', lat, lng, zcode, freeOnly, numOfRows],
     enabled: enabled && lat != null && lng != null,
     staleTime: 60_000,
     queryFn: async () => {
       const { data, error } = await supabase.functions.invoke('charger-stations', {
-        body: { lat, lng, zcode, freeOnly, limit: 50 },
+        body: { lat, lng, zcode, freeOnly, numOfRows, limit: 50 },
       });
       if (error) throw new Error(error.message ?? '충전소 조회 실패');
       if (data?.error) throw new Error(data.error);

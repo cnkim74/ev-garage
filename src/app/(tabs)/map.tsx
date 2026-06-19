@@ -15,32 +15,97 @@ import {
 import { colors } from '../../lib/theme';
 import { useAuth } from '../../providers/auth';
 
+interface Region {
+  zcode: string;
+  name: string;
+  lat: number;
+  lng: number;
+}
+// 칩으로 보여줄 주요 지역 (시도코드)
+const REGIONS: Region[] = [
+  { zcode: '11', name: '서울', lat: 37.5663, lng: 126.9779 },
+  { zcode: '41', name: '경기', lat: 37.275, lng: 127.009 },
+  { zcode: '28', name: '인천', lat: 37.4563, lng: 126.7052 },
+  { zcode: '47', name: '경북·안동', lat: 36.5684, lng: 128.7294 },
+  { zcode: '26', name: '부산', lat: 35.1796, lng: 129.0756 },
+  { zcode: '30', name: '대전', lat: 36.3504, lng: 127.3845 },
+];
+
+// GPS 좌표 → 가장 가까운 시도 추정 (전국 시도 중심좌표). 공공 API zcode 조회용.
+const SIDO: Region[] = [
+  { zcode: '11', name: '서울', lat: 37.5663, lng: 126.9779 },
+  { zcode: '26', name: '부산', lat: 35.1796, lng: 129.0756 },
+  { zcode: '27', name: '대구', lat: 35.8714, lng: 128.6014 },
+  { zcode: '28', name: '인천', lat: 37.4563, lng: 126.7052 },
+  { zcode: '29', name: '광주', lat: 35.1595, lng: 126.8526 },
+  { zcode: '30', name: '대전', lat: 36.3504, lng: 127.3845 },
+  { zcode: '31', name: '울산', lat: 35.5384, lng: 129.3114 },
+  { zcode: '36', name: '세종', lat: 36.48, lng: 127.289 },
+  { zcode: '41', name: '경기', lat: 37.4138, lng: 127.5183 },
+  { zcode: '42', name: '강원', lat: 37.8228, lng: 128.1555 },
+  { zcode: '43', name: '충북', lat: 36.6357, lng: 127.4917 },
+  { zcode: '44', name: '충남', lat: 36.6588, lng: 126.6728 },
+  { zcode: '45', name: '전북', lat: 35.7175, lng: 127.153 },
+  { zcode: '46', name: '전남', lat: 34.8679, lng: 126.991 },
+  { zcode: '47', name: '경북', lat: 36.4919, lng: 128.8889 },
+  { zcode: '48', name: '경남', lat: 35.4606, lng: 128.2132 },
+  { zcode: '50', name: '제주', lat: 33.4996, lng: 126.5312 },
+];
+
+function nearestRegion(lat: number, lng: number): Region {
+  let best = SIDO[0];
+  let bestD = Infinity;
+  for (const r of SIDO) {
+    const d = (r.lat - lat) ** 2 + (r.lng - lng) ** 2;
+    if (d < bestD) {
+      bestD = d;
+      best = r;
+    }
+  }
+  return best;
+}
+
 export default function MapTab() {
   const { profile } = useAuth();
   const familyId = profile?.family_id ?? null;
   const router = useRouter();
 
-  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [locErr, setLocErr] = useState<string | null>(null);
+  const [gps, setGps] = useState<{ lat: number; lng: number } | null>(null);
+  const [region, setRegion] = useState<Region | null>(null); // 선택 시 GPS 대신 사용
   const [freeOnly, setFreeOnly] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
-          setLocErr('위치 권한이 필요해요. 권한을 허용하면 가까운 충전소를 보여드려요.');
-          return;
-        }
-        const pos = await Location.getCurrentPositionAsync({});
-        setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-      } catch {
-        setLocErr('현재 위치를 가져오지 못했어요.');
+  async function requestGps() {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        if (!region) setRegion(REGIONS[0]); // 거부 시 기본 지역으로 폴백
+        return;
       }
-    })();
+      const pos = await Location.getCurrentPositionAsync({});
+      setGps({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+      setRegion(null);
+    } catch {
+      if (!region) setRegion(REGIONS[0]);
+    }
+  }
+
+  useEffect(() => {
+    requestGps();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const stationsQ = useNearbyStations({ lat: coords?.lat, lng: coords?.lng, freeOnly });
+  const usingGps = !region && !!gps;
+  const lat = region ? region.lat : gps?.lat;
+  const lng = region ? region.lng : gps?.lng;
+  // GPS 사용 시에도 가장 가까운 시도코드를 추정해 공공 API 조회 정확도/속도 확보
+  const zcode = region
+    ? region.zcode
+    : gps
+      ? nearestRegion(gps.lat, gps.lng).zcode
+      : undefined;
+  const ready = lat != null && lng != null;
+
+  const stationsQ = useNearbyStations({ lat, lng, zcode, freeOnly, enabled: ready });
   const favsQ = useFavorites(familyId);
   const toggleFav = useToggleFavorite(familyId);
 
@@ -48,7 +113,30 @@ export default function MapTab() {
     <Screen>
       <ScreenHeader title="충전소" subtitle="내 주변 충전소 · 실시간 사용가능" />
 
-      <View className="mb-3 flex-row gap-2">
+      <View className="mb-2 flex-row flex-wrap gap-2">
+        <Pressable
+          onPress={() => (gps ? setRegion(null) : requestGps())}
+          className={`rounded-pill border px-3 py-1.5 ${
+            usingGps ? 'border-ocean bg-ocean/10' : 'border-sand'
+          }`}>
+          <Text className={usingGps ? 'text-ocean' : 'text-muted'}>📍 내 위치</Text>
+        </Pressable>
+        {REGIONS.map((r) => {
+          const active = region?.zcode === r.zcode;
+          return (
+            <Pressable
+              key={r.zcode}
+              onPress={() => setRegion(r)}
+              className={`rounded-pill border px-3 py-1.5 ${
+                active ? 'border-ocean bg-ocean/10' : 'border-sand'
+              }`}>
+              <Text className={active ? 'text-ocean' : 'text-muted'}>{r.name}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <View className="mb-3 flex-row items-center gap-2">
         <Pressable
           onPress={() => setFreeOnly((v) => !v)}
           className={`rounded-pill border px-4 py-2 ${
@@ -56,16 +144,15 @@ export default function MapTab() {
           }`}>
           <Text className={freeOnly ? 'text-leaf' : 'text-muted'}>주차비 무료만</Text>
         </Pressable>
+        <Text className="text-xs text-muted">
+          {usingGps ? '내 위치 기준 거리순' : region ? `${region.name} 기준 거리순` : ''}
+        </Text>
       </View>
 
-      {locErr ? (
-        <Card>
-          <Text className="text-sm text-muted">{locErr}</Text>
-        </Card>
-      ) : !coords ? (
+      {!ready ? (
         <View className="flex-row items-center">
           <ActivityIndicator color={colors.terracotta} />
-          <Text className="ml-2 text-sm text-muted">현재 위치 확인 중…</Text>
+          <Text className="ml-2 text-sm text-muted">위치 확인 중… (또는 위 지역을 선택하세요)</Text>
         </View>
       ) : stationsQ.isLoading ? (
         <View className="flex-row items-center">

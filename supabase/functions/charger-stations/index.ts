@@ -61,7 +61,7 @@ Deno.serve(async (req: Request) => {
     const key = Deno.env.get('DATA_GO_KR_KEY');
     if (!key) return json({ error: 'DATA_GO_KR_KEY 가 설정되지 않았습니다.' }, 500);
 
-    const { lat, lng, zcode, freeOnly, limit } = await req.json().catch(() => ({}));
+    const { lat, lng, zcode, freeOnly, limit, numOfRows } = await req.json().catch(() => ({}));
     if (typeof lat !== 'number' || typeof lng !== 'number') {
       return json({ error: 'lat, lng(숫자)이 필요합니다.' }, 400);
     }
@@ -71,7 +71,9 @@ Deno.serve(async (req: Request) => {
     // - Decoding 키(원문) → encodeURIComponent
     const rawKey = key.trim();
     const serviceKey = rawKey.includes('%') ? rawKey : encodeURIComponent(rawKey);
-    const rest = new URLSearchParams({ pageNo: '1', numOfRows: '600' });
+    // 공공 API가 zcode 조회 시 느려서 건수를 제한(기본 250). 클라이언트가 조절 가능.
+    const rows = Math.min(Math.max(parseInt(String(numOfRows), 10) || 250, 10), 1000);
+    const rest = new URLSearchParams({ pageNo: '1', numOfRows: String(rows) });
     if (zcode) rest.set('zcode', String(zcode)); // 시도코드(2자리). 없으면 전국(느릴 수 있음)
 
     const resp = await fetch(`${BASE}?serviceKey=${serviceKey}&${rest.toString()}`);
