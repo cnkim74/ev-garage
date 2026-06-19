@@ -6,6 +6,8 @@
 
 export type OwnershipType = 'own' | 'rent' | 'lease';
 export type StationNoteKind = 'parking' | 'access' | 'tip';
+export type ParkingFee = 'free' | 'paid' | 'conditional';
+export type FloorType = 'ground' | 'underground';
 
 export interface Database {
   public: {
@@ -138,6 +140,36 @@ export interface Database {
         Row: { id: string; family_id: string; station_ext_id: string; created_at: string };
         Insert: { id?: string; family_id: string; station_ext_id: string; created_at?: string };
         Update: Partial<Database['public']['Tables']['favorites']['Insert']>;
+        Relationships: [];
+      };
+      station_facts: {
+        Row: {
+          id: string;
+          family_id: string;
+          station_ext_id: string;
+          parking_fee: ParkingFee | null;
+          parking_fee_note: string | null;
+          charging_free_minutes: number | null;
+          floor_type: FloorType | null;
+          floor_level: number | null;
+          extra_note: string | null;
+          updated_by: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          family_id: string;
+          station_ext_id: string;
+          parking_fee?: ParkingFee | null;
+          parking_fee_note?: string | null;
+          charging_free_minutes?: number | null;
+          floor_type?: FloorType | null;
+          floor_level?: number | null;
+          extra_note?: string | null;
+          updated_by?: string | null;
+          updated_at?: string;
+        };
+        Update: Partial<Database['public']['Tables']['station_facts']['Insert']>;
         Relationships: [];
       };
     };

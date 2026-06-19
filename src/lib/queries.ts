@@ -266,3 +266,59 @@ export function useAddStationNote() {
     onSuccess: (_d, n) => qc.invalidateQueries({ queryKey: ['station_notes', n.stationExtId] }),
   });
 }
+
+// ── 충전소 도착 난이도(구조화) ───────────────────────────────
+export type StationFacts = Database['public']['Tables']['station_facts']['Row'];
+
+export function useStationFacts(familyId?: string | null, stationExtId?: string) {
+  return useQuery({
+    queryKey: ['station_facts', familyId, stationExtId],
+    enabled: !!familyId && !!stationExtId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('station_facts')
+        .select('*')
+        .eq('family_id', familyId!)
+        .eq('station_ext_id', stationExtId!)
+        .maybeSingle();
+      if (error) throw error;
+      return (data ?? null) as StationFacts | null;
+    },
+  });
+}
+
+export function useUpsertStationFacts() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (f: {
+      familyId: string;
+      stationExtId: string;
+      parkingFee: 'free' | 'paid' | 'conditional' | null;
+      parkingFeeNote: string | null;
+      chargingFreeMinutes: number | null;
+      floorType: 'ground' | 'underground' | null;
+      floorLevel: number | null;
+      extraNote: string | null;
+      updatedBy?: string | null;
+    }) => {
+      const { error } = await supabase.from('station_facts').upsert(
+        {
+          family_id: f.familyId,
+          station_ext_id: f.stationExtId,
+          parking_fee: f.parkingFee,
+          parking_fee_note: f.parkingFeeNote,
+          charging_free_minutes: f.chargingFreeMinutes,
+          floor_type: f.floorType,
+          floor_level: f.floorLevel,
+          extra_note: f.extraNote,
+          updated_by: f.updatedBy ?? null,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'family_id,station_ext_id' },
+      );
+      if (error) throw error;
+    },
+    onSuccess: (_d, f) =>
+      qc.invalidateQueries({ queryKey: ['station_facts', f.familyId, f.stationExtId] }),
+  });
+}
