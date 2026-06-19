@@ -33,6 +33,17 @@ function floorText(f: StationFacts): string | null {
   return f.floor_level != null ? `${base} ${f.floor_level}층` : base;
 }
 
+interface PublicHint {
+  parkingFee: ParkingFee | null;
+  floorType: FloorType | null;
+  floorLevel: number | null;
+}
+function hintFloorText(h: PublicHint): string | null {
+  if (!h.floorType) return null;
+  const base = h.floorType === 'underground' ? '지하' : '지상';
+  return h.floorLevel != null ? `${base} ${h.floorLevel}층` : base;
+}
+
 export default function StationDetail() {
   const params = useLocalSearchParams<{
     id: string;
@@ -43,10 +54,22 @@ export default function StationDetail() {
     total?: string;
     free?: string;
     dist?: string;
+    ft?: string; // floorType F/B (공공)
+    fn?: string; // floorNum (공공)
   }>();
   const stationId = params.id;
   const { profile } = useAuth();
   const familyId = profile?.family_id ?? null;
+
+  // 공공데이터 기반 힌트 (가족이 입력 전 기본값/표시)
+  const publicHint: PublicHint | null =
+    params.free || params.ft
+      ? {
+          parkingFee: params.free === '1' ? 'free' : params.free === '0' ? 'paid' : null,
+          floorType: params.ft === 'F' ? 'ground' : params.ft === 'B' ? 'underground' : null,
+          floorLevel: params.fn ? parseInt(params.fn, 10) || null : null,
+        }
+      : null;
 
   const favsQ = useFavorites(familyId);
   const toggleFav = useToggleFavorite(familyId);
@@ -84,7 +107,12 @@ export default function StationDetail() {
         </View>
       </Card>
 
-      <FactsSection stationId={stationId} familyId={familyId} updatedBy={profile?.id} />
+      <FactsSection
+        stationId={stationId}
+        familyId={familyId}
+        updatedBy={profile?.id}
+        publicHint={publicHint}
+      />
       <NotesSection stationId={stationId} familyId={familyId} createdBy={profile?.id} />
     </Screen>
   );
@@ -105,26 +133,64 @@ function FactsSection({
   stationId,
   familyId,
   updatedBy,
+  publicHint,
 }: {
   stationId: string;
   familyId: string | null;
   updatedBy?: string;
+  publicHint: PublicHint | null;
 }) {
   const { data: facts, isLoading } = useStationFacts(familyId, stationId);
   const [editing, setEditing] = useState(false);
 
   if (isLoading) return <ActivityIndicator color={colors.terracotta} />;
 
-  if (editing || !facts) {
+  if (editing) {
     return (
       <FactsForm
         stationId={stationId}
         familyId={familyId}
         updatedBy={updatedBy}
         initial={facts}
+        publicHint={publicHint}
         onDone={() => setEditing(false)}
-        onCancel={facts ? () => setEditing(false) : undefined}
+        onCancel={() => setEditing(false)}
       />
+    );
+  }
+
+  // 가족 입력 전: 공공데이터 힌트가 있으면 그걸 미리 보여주고, 없으면 빈 폼
+  if (!facts) {
+    const hintFee = publicHint?.parkingFee;
+    const hintFloor = publicHint ? hintFloorText(publicHint) : null;
+    if (!hintFee && !hintFloor) {
+      return (
+        <FactsForm
+          stationId={stationId}
+          familyId={familyId}
+          updatedBy={updatedBy}
+          initial={null}
+          publicHint={publicHint}
+          onDone={() => setEditing(false)}
+        />
+      );
+    }
+    return (
+      <Card className="mb-4">
+        <Text className="text-base font-bold text-ink">도착 난이도</Text>
+        <Text className="mb-1 mt-0.5 text-xs text-muted">공공데이터 기준 · 가족이 확인·보완하세요</Text>
+        <View className="mt-1">
+          <Row
+            label="주차비"
+            value={hintFee ? FEE_LABEL[hintFee] : '정보 없음'}
+            color={hintFee ? FEE_COLOR[hintFee] : colors.muted}
+          />
+          <Row label="위치" value={hintFloor ?? '정보 없음'} />
+        </View>
+        <View className="mt-3">
+          <Button variant="outline" label="우리 가족 정보로 보완" onPress={() => setEditing(true)} />
+        </View>
+      </Card>
     );
   }
 
@@ -191,6 +257,7 @@ function FactsForm({
   familyId,
   updatedBy,
   initial,
+  publicHint,
   onDone,
   onCancel,
 }: {
@@ -198,17 +265,27 @@ function FactsForm({
   familyId: string | null;
   updatedBy?: string;
   initial?: StationFacts | null;
+  publicHint?: PublicHint | null;
   onDone: () => void;
   onCancel?: () => void;
 }) {
-  const [fee, setFee] = useState<ParkingFee | null>(initial?.parking_fee ?? null);
+  // 가족 입력값이 없으면 공공데이터 힌트로 기본값 채움
+  const [fee, setFee] = useState<ParkingFee | null>(
+    initial?.parking_fee ?? publicHint?.parkingFee ?? null,
+  );
   const [feeNote, setFeeNote] = useState(initial?.parking_fee_note ?? '');
   const [freeMin, setFreeMin] = useState(
     initial?.charging_free_minutes != null ? String(initial.charging_free_minutes) : '',
   );
-  const [floorType, setFloorType] = useState<FloorType | null>(initial?.floor_type ?? null);
+  const [floorType, setFloorType] = useState<FloorType | null>(
+    initial?.floor_type ?? publicHint?.floorType ?? null,
+  );
   const [floorLevel, setFloorLevel] = useState(
-    initial?.floor_level != null ? String(initial.floor_level) : '',
+    initial?.floor_level != null
+      ? String(initial.floor_level)
+      : publicHint?.floorLevel != null
+        ? String(publicHint.floorLevel)
+        : '',
   );
   const [extra, setExtra] = useState(initial?.extra_note ?? '');
   const upsert = useUpsertStationFacts();

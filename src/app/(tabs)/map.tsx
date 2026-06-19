@@ -197,8 +197,10 @@ export default function MapTab() {
                   busi: s.busiNm ?? '',
                   avail: String(s.available),
                   total: String(s.total),
-                  free: s.parkingFree ? '1' : '',
+                  free: s.parkingFree ? '1' : '0',
                   dist: s.distanceKm != null ? s.distanceKm.toFixed(1) : '',
+                  ft: s.floorType ?? '',
+                  fn: s.floorNum != null ? String(s.floorNum) : '',
                 },
               })
             }
