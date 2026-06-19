@@ -32,7 +32,8 @@ const RECORD_TOOL: Anthropic.Tool = {
       },
       contract_distance_km: {
         type: ['integer', 'null'],
-        description: '약정/허용 주행거리 한도(km). 예: 50000. 연간 한도면 계약 기간으로 환산하지 말고 표기된 총 한도를 우선.',
+        description:
+          '연간 약정 주행거리(km/년). 예: 20000. 계약서에 연 한도가 있으면 그 값을, "총 약정거리"만 있으면 (총 약정 ÷ 계약연수)로 환산한 연간 값을 넣을 것.',
       },
       start_odo_km: {
         type: ['integer', 'null'],

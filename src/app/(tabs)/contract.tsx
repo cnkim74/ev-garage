@@ -159,27 +159,32 @@ function ContractSummary({ vehicle, contract }: { vehicle: Vehicle; contract: Re
     endDate: contract.end_date,
   });
   const color = STATUS_COLOR[r.status];
-  const pctText = `${Math.round(r.usedPct * 100)}%`;
+  const pctText = `${Math.round(r.usagePct * 100)}%`;
   const overage = r.projectedOverage > 0;
 
   return (
     <View>
       <Card className="mb-4">
         <View className="mb-2 flex-row items-end justify-between">
-          <Text className="text-sm text-muted">약정 사용률</Text>
+          <Text className="text-sm text-muted">오늘까지 페이스</Text>
           <Text className="text-3xl font-bold" style={{ color }}>
             {pctText}
           </Text>
         </View>
-        <Gauge pct={r.usedPct} status={r.status} />
+        <Gauge pct={r.usagePct} status={r.status} />
         <View className="mt-3 flex-row justify-between">
           <Text className="text-sm text-muted">
-            사용 {km(r.used)} / 약정 {km(contract.contract_distance_km)}
+            실제 {km(r.used)} / 예상 {km(r.allowedToDate)}
           </Text>
           <Text className="text-sm font-semibold" style={{ color }}>
-            {r.remaining >= 0 ? `남음 ${km(r.remaining)}` : `초과 ${km(-r.remaining)}`}
+            {r.paceRemaining >= 0
+              ? `예상보다 ${km(r.paceRemaining)} 적게`
+              : `예상보다 ${km(-r.paceRemaining)} 많이`}
           </Text>
         </View>
+        <Text className="mt-1 text-xs text-muted">
+          연간 약정 {km(r.annualLimitKm)} 기준 · 계약 시작 후 {r.elapsedDays}일 경과
+        </Text>
       </Card>
 
       <Card className="mb-4">
@@ -189,10 +194,8 @@ function ContractSummary({ vehicle, contract }: { vehicle: Vehicle; contract: Re
             <Text className="mt-1 text-xl font-bold text-ink">{km(r.currentDailyAvg)}</Text>
           </View>
           <View>
-            <Text className="text-xs text-muted">안전 일평균</Text>
-            <Text className="mt-1 text-xl font-bold text-ink">
-              {km(Math.max(r.safeDailyAvg, 0))}
-            </Text>
+            <Text className="text-xs text-muted">적정 일평균</Text>
+            <Text className="mt-1 text-xl font-bold text-ink">{km(r.targetDailyAvg)}</Text>
           </View>
           <View>
             <Text className="text-xs text-muted">남은 기간</Text>
@@ -341,7 +344,7 @@ function ContractForm({
     <Card>
       <Text className="text-base font-semibold text-ink">{vehicle.nickname} 약정 정보 입력</Text>
       <Text className="mb-3 mt-1 text-xs text-muted">
-        렌트/리스 계약서의 약정 한도와 기간을 입력하면 페이스를 계산해 드려요.
+        연간 약정거리와 계약 기간을 입력하면 계약일부터 오늘까지의 페이스를 계산해 드려요.
       </Text>
 
       <View className="mb-4 rounded-card border border-sand bg-cream p-3">
@@ -370,11 +373,12 @@ function ContractForm({
       </View>
 
       <TextField
-        label="약정 한도 (km)"
+        label="연간 약정 주행거리 (km/년)"
         value={distance}
         onChangeText={setDistance}
         keyboardType="number-pad"
-        placeholder="예: 50000"
+        placeholder="예: 20000"
+        hint="1년 기준 약정거리예요. 계약서가 '총 약정'만 표기하면 ÷ 계약연수 로 환산해 입력."
       />
       <TextField
         label="계약 시작 시 주행거리 (km)"
