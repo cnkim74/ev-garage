@@ -322,3 +322,79 @@ export function useUpsertStationFacts() {
       qc.invalidateQueries({ queryKey: ['station_facts', f.familyId, f.stationExtId] }),
   });
 }
+
+// ── 차량 추가/편집/삭제 · 프로필 ──────────────────────────────
+export function useAddVehicle() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (v: {
+      familyId: string;
+      nickname: string;
+      model: string | null;
+      ownershipType: 'own' | 'rent' | 'lease';
+      currentOdoKm: number;
+      plate: string | null;
+    }) => {
+      const { error } = await supabase.from('vehicles').insert({
+        family_id: v.familyId,
+        nickname: v.nickname,
+        model: v.model,
+        ownership_type: v.ownershipType,
+        current_odo_km: v.currentOdoKm,
+        plate: v.plate,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['vehicles'] }),
+  });
+}
+
+export function useUpdateVehicle() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (v: {
+      id: string;
+      nickname: string;
+      model: string | null;
+      ownershipType: 'own' | 'rent' | 'lease';
+      plate: string | null;
+    }) => {
+      const { error } = await supabase
+        .from('vehicles')
+        .update({
+          nickname: v.nickname,
+          model: v.model,
+          ownership_type: v.ownershipType,
+          plate: v.plate,
+        })
+        .eq('id', v.id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['vehicles'] }),
+  });
+}
+
+export function useDeleteVehicle() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('vehicles').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['vehicles'] }),
+  });
+}
+
+export function useUpdateDisplayName() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (v: { userId: string; displayName: string }) => {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ display_name: v.displayName })
+        .eq('id', v.userId);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['family'] }),
+  });
+}

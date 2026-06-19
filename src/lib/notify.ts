@@ -13,3 +13,17 @@ export function notify(title: string, message?: string) {
     Alert.alert(title, message);
   }
 }
+
+/** 크로스플랫폼 확인 다이얼로그. 확인=true */
+export function confirmAsync(title: string, message?: string, confirmLabel = '확인'): Promise<boolean> {
+  if (Platform.OS === 'web') {
+    // eslint-disable-next-line no-alert
+    return Promise.resolve(window.confirm(message ? `${title}\n\n${message}` : title));
+  }
+  return new Promise((resolve) => {
+    Alert.alert(title, message, [
+      { text: '취소', style: 'cancel', onPress: () => resolve(false) },
+      { text: confirmLabel, style: 'destructive', onPress: () => resolve(true) },
+    ]);
+  });
+}
