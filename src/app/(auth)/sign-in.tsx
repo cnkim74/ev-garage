@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { Alert, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 
 import { Button } from '../../components/Button';
 import { Card, ScreenHeader } from '../../components/Card';
 import { Screen } from '../../components/Screen';
 import { TextField } from '../../components/TextField';
 import { isSupabaseConfigured } from '../../lib/env';
+import { notify } from '../../lib/notify';
 import { supabase } from '../../lib/supabase';
 
 export default function SignIn() {
@@ -16,7 +17,7 @@ export default function SignIn() {
 
   async function submit() {
     if (!email.trim() || password.length < 6) {
-      Alert.alert('입력 확인', '이메일과 6자 이상 비밀번호를 입력하세요.');
+      notify('입력 확인', '이메일과 6자 이상 비밀번호를 입력하세요.');
       return;
     }
     setLoading(true);
@@ -33,13 +34,13 @@ export default function SignIn() {
           password,
         });
         if (error) throw error;
-        Alert.alert(
+        notify(
           '가입 완료',
           '이메일 인증이 켜져 있다면 메일함을 확인하세요. 인증 후 로그인됩니다.',
         );
       }
     } catch (e: any) {
-      Alert.alert('오류', e?.message ?? '로그인에 실패했습니다.');
+      notify('오류', e?.message ?? '로그인에 실패했습니다.');
     } finally {
       setLoading(false);
     }

@@ -41,6 +41,10 @@ yarn-error.*
 # Claude Code 로컬 설정
 .claude/
 
+# 스크린샷/이미지 임시 파일 (실수 커밋 방지)
+*.heic
+스크린샷*
+
 # typescript
 *.tsbuildinfo
 

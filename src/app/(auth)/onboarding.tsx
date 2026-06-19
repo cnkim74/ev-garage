@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Alert, Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 
 import { Button } from '../../components/Button';
 import { Card, ScreenHeader } from '../../components/Card';
 import { Screen } from '../../components/Screen';
 import { TextField } from '../../components/TextField';
+import { notify } from '../../lib/notify';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../providers/auth';
 import type { OwnershipType } from '../../types/database';
@@ -79,7 +80,7 @@ export default function Onboarding() {
       }
       setStep('vehicle');
     } catch (e: any) {
-      Alert.alert('오류', e?.message ?? '처리에 실패했습니다.');
+      notify('오류', e?.message ?? '처리에 실패했습니다.');
     } finally {
       setLoading(false);
     }
@@ -88,7 +89,7 @@ export default function Onboarding() {
   async function submitVehicle() {
     if (!familyId) return;
     if (!nickname.trim()) {
-      Alert.alert('입력 확인', '차량 별명을 입력하세요. (예: EV6)');
+      notify('입력 확인', '차량 별명을 입력하세요. (예: EV6)');
       return;
     }
     setLoading(true);
@@ -105,7 +106,7 @@ export default function Onboarding() {
       // 이제 프로필을 갱신하면 hasFamily=true → 탭으로 자동 이동
       await refreshProfile();
     } catch (e: any) {
-      Alert.alert('오류', e?.message ?? '차량 등록에 실패했습니다.');
+      notify('오류', e?.message ?? '차량 등록에 실패했습니다.');
     } finally {
       setLoading(false);
     }
