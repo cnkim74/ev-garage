@@ -11,6 +11,7 @@ import {
   useAddChargeLog,
   useChargeLogs,
   useDeleteChargeLog,
+  useUpdateChargeLog,
   useVehicles,
   type ChargeLog,
 } from '../../lib/queries';
@@ -78,53 +79,117 @@ export default function Ledger() {
   );
 }
 
-function RecentList({ logs }: { logs: ChargeLog[] }) {
-  const del = useDeleteChargeLog();
-  if (logs.length === 0) return null;
-  const fmtDate = (iso: string) => {
-    const d = new Date(iso);
-    return `${d.getMonth() + 1}/${d.getDate()}`;
-  };
+const fmtMD = (iso: string) => {
+  const d = new Date(iso);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+};
+const ymdOf = (iso: string) => {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
 
+function RecentList({ logs }: { logs: ChargeLog[] }) {
+  if (logs.length === 0) return null;
   return (
     <Card className="mb-4">
       <Text className="mb-2 text-sm font-semibold text-ink">최근 기록</Text>
       {logs.slice(0, 20).map((l, i) => (
-        <View
-          key={l.id}
-          className={`flex-row items-center justify-between py-2.5 ${
-            i > 0 ? 'border-t border-sand' : ''
-          }`}>
-          <View className="flex-1 pr-2">
-            <Text className="text-sm text-ink">
-              {fmtDate(l.charged_at)} · {l.operator?.trim() || '기타'}
-            </Text>
-            <Text className="mt-0.5 text-xs text-muted">
-              {l.kwh != null ? `${l.kwh} kWh` : '—'}
-              {l.cost_krw != null ? ` · ${won(l.cost_krw)}` : ''}
-            </Text>
-          </View>
-          <Pressable
-            hitSlop={6}
-            onPress={async () => {
-              const ok = await confirmAsync(
-                '충전 기록 삭제',
-                `${fmtDate(l.charged_at)} ${l.operator?.trim() || '기타'} 기록을 삭제할까요?`,
-                '삭제',
-              );
-              if (!ok) return;
-              try {
-                await del.mutateAsync(l.id);
-                notify('삭제 완료', '충전 기록을 삭제했어요.');
-              } catch (e: any) {
-                notify('오류', e?.message ?? '삭제 실패');
-              }
-            }}>
-            <Text className="text-sm font-semibold text-terracotta">삭제</Text>
-          </Pressable>
+        <View key={l.id} className={i > 0 ? 'border-t border-sand' : ''}>
+          <LogRow log={l} />
         </View>
       ))}
     </Card>
+  );
+}
+
+function LogRow({ log: l }: { log: ChargeLog }) {
+  const [editing, setEditing] = useState(false);
+  const del = useDeleteChargeLog();
+  const update = useUpdateChargeLog();
+
+  const [kwh, setKwh] = useState(l.kwh != null ? String(l.kwh) : '');
+  const [cost, setCost] = useState(l.cost_krw != null ? String(l.cost_krw) : '');
+  const [operator, setOperator] = useState(l.operator ?? '');
+  const [date, setDate] = useState(ymdOf(l.charged_at));
+
+  async function save() {
+    const kwhNum = kwh.trim() ? parseFloat(kwh) : null;
+    const costNum = cost.trim() ? parseInt(cost, 10) : null;
+    if (kwhNum == null && costNum == null) {
+      notify('입력 확인', 'kWh 또는 비용 중 하나는 입력하세요.');
+      return;
+    }
+    try {
+      await update.mutateAsync({
+        id: l.id,
+        kwh: kwhNum,
+        costKrw: costNum,
+        operator: operator.trim() || null,
+        chargedAt: date,
+      });
+      setEditing(false);
+      notify('저장 완료', '충전 기록을 수정했어요.');
+    } catch (e: any) {
+      notify('오류', e?.message ?? '저장 실패');
+    }
+  }
+
+  if (editing) {
+    return (
+      <View className="py-3">
+        <View className="flex-row gap-2">
+          <View className="flex-1">
+            <TextField label="kWh" value={kwh} onChangeText={setKwh} keyboardType="decimal-pad" placeholder="42.5" />
+          </View>
+          <View className="flex-1">
+            <TextField label="비용(원)" value={cost} onChangeText={setCost} keyboardType="number-pad" placeholder="12000" />
+          </View>
+        </View>
+        <TextField label="사업소" value={operator} onChangeText={setOperator} placeholder="예: 환경부" />
+        <DateField label="충전일" value={date} onChange={setDate} />
+        <Button label="수정 저장" onPress={save} loading={update.isPending} />
+        <View className="mt-2">
+          <Button variant="ghost" label="취소" onPress={() => setEditing(false)} />
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View className="flex-row items-center justify-between py-2.5">
+      <View className="flex-1 pr-2">
+        <Text className="text-sm text-ink">
+          {fmtMD(l.charged_at)} · {l.operator?.trim() || '기타'}
+        </Text>
+        <Text className="mt-0.5 text-xs text-muted">
+          {l.kwh != null ? `${l.kwh} kWh` : '—'}
+          {l.cost_krw != null ? ` · ${won(l.cost_krw)}` : ''}
+        </Text>
+      </View>
+      <View className="flex-row gap-3">
+        <Pressable hitSlop={6} onPress={() => setEditing(true)}>
+          <Text className="text-sm font-semibold text-ocean">편집</Text>
+        </Pressable>
+        <Pressable
+          hitSlop={6}
+          onPress={async () => {
+            const ok = await confirmAsync(
+              '충전 기록 삭제',
+              `${fmtMD(l.charged_at)} ${l.operator?.trim() || '기타'} 기록을 삭제할까요?`,
+              '삭제',
+            );
+            if (!ok) return;
+            try {
+              await del.mutateAsync(l.id);
+              notify('삭제 완료', '충전 기록을 삭제했어요.');
+            } catch (e: any) {
+              notify('오류', e?.message ?? '삭제 실패');
+            }
+          }}>
+          <Text className="text-sm font-semibold text-terracotta">삭제</Text>
+        </Pressable>
+      </View>
+    </View>
   );
 }
 

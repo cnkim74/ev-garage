@@ -410,3 +410,29 @@ export function useDeleteChargeLog() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['charge_logs'] }),
   });
 }
+
+/** 충전 기록 수정 */
+export function useUpdateChargeLog() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (c: {
+      id: string;
+      kwh: number | null;
+      costKrw: number | null;
+      operator: string | null;
+      chargedAt: string;
+    }) => {
+      const { error } = await supabase
+        .from('charge_logs')
+        .update({
+          kwh: c.kwh,
+          cost_krw: c.costKrw,
+          operator: c.operator,
+          charged_at: c.chargedAt,
+        })
+        .eq('id', c.id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['charge_logs'] }),
+  });
+}
