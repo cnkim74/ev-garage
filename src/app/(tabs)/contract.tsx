@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-nati
 
 import { Button } from '../../components/Button';
 import { Card, ScreenHeader } from '../../components/Card';
+import { DateField } from '../../components/DateField';
 import { Gauge } from '../../components/Gauge';
 import { Screen } from '../../components/Screen';
 import { TextField } from '../../components/TextField';
@@ -388,20 +389,13 @@ function ContractForm({
         placeholder="예: 0"
         hint="계약 시작 시점의 주행거리예요. 보통 0 또는 인수 시 값."
       />
-      <TextField
+      <DateField
         label="계약 시작일"
         value={startDate}
-        onChangeText={setStartDate}
-        autoCapitalize="none"
-        placeholder="YYYY-MM-DD"
+        onChange={setStartDate}
+        hint="직접 입력하거나 달력에서 선택하세요."
       />
-      <TextField
-        label="계약 만료일"
-        value={endDate}
-        onChangeText={setEndDate}
-        autoCapitalize="none"
-        placeholder="YYYY-MM-DD"
-      />
+      <DateField label="계약 만료일" value={endDate} onChange={setEndDate} />
       <Button
         label={initial ? '약정 정보 저장' : '약정 등록'}
         onPress={submit}
