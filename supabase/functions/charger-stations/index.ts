@@ -66,14 +66,15 @@ Deno.serve(async (req: Request) => {
       return json({ error: 'lat, lng(숫자)이 필요합니다.' }, 400);
     }
 
-    const params = new URLSearchParams({
-      serviceKey: key, // 일반(Decoding) 키 — URLSearchParams 가 인코딩
-      pageNo: '1',
-      numOfRows: '600',
-    });
-    if (zcode) params.set('zcode', String(zcode)); // 시도코드(2자리). 없으면 전국(느릴 수 있음)
+    // serviceKey 인코딩 자동 처리:
+    // - Encoding 키(이미 %2B 등 포함) → 그대로 사용(이중 인코딩 방지)
+    // - Decoding 키(원문) → encodeURIComponent
+    const rawKey = key.trim();
+    const serviceKey = rawKey.includes('%') ? rawKey : encodeURIComponent(rawKey);
+    const rest = new URLSearchParams({ pageNo: '1', numOfRows: '600' });
+    if (zcode) rest.set('zcode', String(zcode)); // 시도코드(2자리). 없으면 전국(느릴 수 있음)
 
-    const resp = await fetch(`${BASE}?${params.toString()}`);
+    const resp = await fetch(`${BASE}?serviceKey=${serviceKey}&${rest.toString()}`);
     const text = await resp.text();
     if (!resp.ok) return json({ error: `공공 API 오류 ${resp.status}`, detail: text.slice(0, 300) }, 502);
 
