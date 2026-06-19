@@ -436,3 +436,78 @@ export function useUpdateChargeLog() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['charge_logs'] }),
   });
 }
+
+// ── 주행거리 기록 조회·수정·삭제 (현재 주행거리 재계산 포함) ──
+export type OdoReading = Database['public']['Tables']['odo_readings']['Row'];
+
+export function useOdoReadings(vehicleId?: string) {
+  return useQuery({
+    queryKey: ['odo_readings', vehicleId],
+    enabled: !!vehicleId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('odo_readings')
+        .select('*')
+        .eq('vehicle_id', vehicleId!)
+        .order('recorded_at', { ascending: false });
+      if (error) throw error;
+      return data as OdoReading[];
+    },
+  });
+}
+
+// 남은 기록의 최대값으로 vehicles.current_odo_km 재동기화 (트리거는 insert 시 greatest 만 처리)
+async function resyncVehicleOdo(vehicleId: string) {
+  const { data } = await supabase.from('odo_readings').select('odo_km').eq('vehicle_id', vehicleId);
+  if (data && data.length > 0) {
+    const max = Math.max(...data.map((r) => r.odo_km));
+    await supabase.from('vehicles').update({ current_odo_km: max }).eq('id', vehicleId);
+  }
+}
+
+export function useUpdateOdoReading() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (v: { id: string; vehicleId: string; odoKm: number }) => {
+      const { error } = await supabase
+        .from('odo_readings')
+        .update({ odo_km: v.odoKm })
+        .eq('id', v.id);
+      if (error) throw error;
+      await resyncVehicleOdo(v.vehicleId);
+    },
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ['odo_readings', v.vehicleId] });
+      qc.invalidateQueries({ queryKey: ['vehicles'] });
+      qc.invalidateQueries({ queryKey: ['contract', v.vehicleId] });
+    },
+  });
+}
+
+export function useDeleteOdoReading() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (v: { id: string; vehicleId: string }) => {
+      const { error } = await supabase.from('odo_readings').delete().eq('id', v.id);
+      if (error) throw error;
+      await resyncVehicleOdo(v.vehicleId);
+    },
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ['odo_readings', v.vehicleId] });
+      qc.invalidateQueries({ queryKey: ['vehicles'] });
+      qc.invalidateQueries({ queryKey: ['contract', v.vehicleId] });
+    },
+  });
+}
+
+// ── 약정 삭제 ────────────────────────────────────────────────
+export function useDeleteContract() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (vehicleId: string) => {
+      const { error } = await supabase.from('rent_contracts').delete().eq('vehicle_id', vehicleId);
+      if (error) throw error;
+    },
+    onSuccess: (_d, vehicleId) => qc.invalidateQueries({ queryKey: ['contract', vehicleId] }),
+  });
+}

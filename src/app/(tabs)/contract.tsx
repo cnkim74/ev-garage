@@ -14,12 +14,17 @@ import {
   scanFromPdf,
   type ScanResult,
 } from '../../lib/contractScan';
-import { notify } from '../../lib/notify';
+import { confirmAsync, notify } from '../../lib/notify';
 import {
   useAddOdoReading,
   useContract,
+  useDeleteContract,
+  useDeleteOdoReading,
+  useOdoReadings,
+  useUpdateOdoReading,
   useUpsertContract,
   useVehicles,
+  type OdoReading,
   type RentContract,
   type Vehicle,
 } from '../../lib/queries';
@@ -109,6 +114,7 @@ export default function Contract() {
 function VehicleContract({ vehicle, recordedBy }: { vehicle: Vehicle; recordedBy?: string }) {
   const { data: contract, isLoading } = useContract(vehicle.id);
   const [editing, setEditing] = useState(false);
+  const delContract = useDeleteContract();
 
   if (isLoading) {
     return <ActivityIndicator color={colors.terracotta} />;
@@ -124,6 +130,7 @@ function VehicleContract({ vehicle, recordedBy }: { vehicle: Vehicle; recordedBy
           <Text className="mt-1 text-sm text-muted">약정거리 제한이 없는 차량이에요.</Text>
         </Card>
         <OdoUpdater vehicle={vehicle} recordedBy={recordedBy} />
+        <OdoHistory vehicle={vehicle} />
       </View>
     );
   }
@@ -143,10 +150,117 @@ function VehicleContract({ vehicle, recordedBy }: { vehicle: Vehicle; recordedBy
   return (
     <View>
       <ContractSummary vehicle={vehicle} contract={contract} />
-      <View className="mb-4">
-        <Button variant="outline" label="약정 정보 수정" onPress={() => setEditing(true)} />
+      <View className="mb-4 flex-row gap-2">
+        <View className="flex-1">
+          <Button variant="outline" label="약정 정보 수정" onPress={() => setEditing(true)} />
+        </View>
+        <Pressable
+          className="items-center justify-center rounded-card border border-sand px-4 active:opacity-80"
+          onPress={async () => {
+            const ok = await confirmAsync(
+              '약정 삭제',
+              '이 차량의 약정 정보를 삭제할까요? (주행거리 기록은 유지됩니다)',
+              '삭제',
+            );
+            if (!ok) return;
+            try {
+              await delContract.mutateAsync(vehicle.id);
+              notify('삭제 완료', '약정 정보를 삭제했어요.');
+            } catch (e: any) {
+              notify('오류', e?.message ?? '삭제 실패');
+            }
+          }}>
+          <Text className="text-sm font-semibold text-terracotta">약정 삭제</Text>
+        </Pressable>
       </View>
       <OdoUpdater vehicle={vehicle} recordedBy={recordedBy} />
+      <OdoHistory vehicle={vehicle} />
+    </View>
+  );
+}
+
+function OdoHistory({ vehicle }: { vehicle: Vehicle }) {
+  const { data: readings } = useOdoReadings(vehicle.id);
+  if (!readings?.length) return null;
+  return (
+    <Card className="mt-3">
+      <Text className="mb-2 text-sm font-semibold text-ink">주행거리 기록</Text>
+      {readings.slice(0, 15).map((r, i) => (
+        <View key={r.id} className={i > 0 ? 'border-t border-sand' : ''}>
+          <OdoRow reading={r} vehicleId={vehicle.id} />
+        </View>
+      ))}
+    </Card>
+  );
+}
+
+function OdoRow({ reading, vehicleId }: { reading: OdoReading; vehicleId: string }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(String(reading.odo_km));
+  const update = useUpdateOdoReading();
+  const del = useDeleteOdoReading();
+
+  const dateStr = (() => {
+    const d = new Date(reading.recorded_at);
+    return `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()}`;
+  })();
+
+  async function save() {
+    const odo = parseInt(value, 10);
+    if (!Number.isFinite(odo) || odo < 0) {
+      notify('입력 확인', '주행거리(km)를 숫자로 입력하세요.');
+      return;
+    }
+    try {
+      await update.mutateAsync({ id: reading.id, vehicleId, odoKm: odo });
+      setEditing(false);
+      notify('저장 완료', '주행거리 기록을 수정했어요.');
+    } catch (e: any) {
+      notify('오류', e?.message ?? '저장 실패');
+    }
+  }
+
+  if (editing) {
+    return (
+      <View className="py-2.5">
+        <TextField value={value} onChangeText={setValue} keyboardType="number-pad" placeholder="예: 38000" />
+        <View className="flex-row gap-2">
+          <View className="flex-1">
+            <Button label="저장" onPress={save} loading={update.isPending} />
+          </View>
+          <View className="flex-1">
+            <Button variant="ghost" label="취소" onPress={() => setEditing(false)} />
+          </View>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View className="flex-row items-center justify-between py-2.5">
+      <View>
+        <Text className="text-sm text-ink">{km(reading.odo_km)}</Text>
+        <Text className="mt-0.5 text-xs text-muted">{dateStr}</Text>
+      </View>
+      <View className="flex-row gap-3">
+        <Pressable hitSlop={6} onPress={() => setEditing(true)}>
+          <Text className="text-sm font-semibold text-ocean">편집</Text>
+        </Pressable>
+        <Pressable
+          hitSlop={6}
+          onPress={async () => {
+            const ok = await confirmAsync('기록 삭제', `${km(reading.odo_km)} 기록을 삭제할까요?`, '삭제');
+            if (!ok) return;
+            try {
+              await del.mutateAsync({ id: reading.id, vehicleId });
+              notify('삭제 완료', '주행거리 기록을 삭제했어요.');
+            } catch (e: any) {
+              notify('오류', e?.message ?? '삭제 실패');
+            }
+          }}>
+          <Text className="text-sm font-semibold text-terracotta">삭제</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
