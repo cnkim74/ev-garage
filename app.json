@@ -10,11 +10,13 @@
     "ios": {
       "icon": "./assets/expo.icon",
       "supportsTablet": true,
+      "bundleIdentifier": "com.cnkim.evgarage",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
+      "package": "com.cnkim.evgarage",
       "adaptiveIcon": {
         "backgroundColor": "#f4f1ea",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

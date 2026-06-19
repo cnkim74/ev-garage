@@ -6,6 +6,7 @@ import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { Button } from '../../components/Button';
 import { Card, ScreenHeader } from '../../components/Card';
 import { Screen } from '../../components/Screen';
+import { StationMap } from '../../components/StationMap';
 import {
   useFavorites,
   useNearbyStations,
@@ -73,6 +74,25 @@ export default function MapTab() {
   const [gps, setGps] = useState<{ lat: number; lng: number } | null>(null);
   const [region, setRegion] = useState<Region | null>(null); // 선택 시 GPS 대신 사용
   const [freeOnly, setFreeOnly] = useState(false);
+  const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
+
+  function openStation(s: Station) {
+    router.push({
+      pathname: '/station/[id]',
+      params: {
+        id: s.statId,
+        nm: s.statNm,
+        addr: s.addr ?? '',
+        busi: s.busiNm ?? '',
+        avail: String(s.available),
+        total: String(s.total),
+        free: s.parkingFree ? '1' : '0',
+        dist: s.distanceKm != null ? s.distanceKm.toFixed(1) : '',
+        ft: s.floorType ?? '',
+        fn: s.floorNum != null ? String(s.floorNum) : '',
+      },
+    });
+  }
 
   async function requestGps() {
     try {
@@ -147,6 +167,19 @@ export default function MapTab() {
         <Text className="text-xs text-muted">
           {usingGps ? '내 위치 기준 거리순' : region ? `${region.name} 기준 거리순` : ''}
         </Text>
+        <View className="flex-1" />
+        <View className="flex-row overflow-hidden rounded-pill border border-sand">
+          {(['list', 'map'] as const).map((m) => (
+            <Pressable
+              key={m}
+              onPress={() => setViewMode(m)}
+              className={`px-3 py-1.5 ${viewMode === m ? 'bg-ocean/10' : ''}`}>
+              <Text className={viewMode === m ? 'text-ocean' : 'text-muted'}>
+                {m === 'list' ? '리스트' : '지도'}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
       </View>
 
       {!ready ? (
@@ -177,6 +210,12 @@ export default function MapTab() {
         <Card>
           <Text className="text-sm text-muted">주변에 표시할 충전소가 없어요.</Text>
         </Card>
+      ) : viewMode === 'map' ? (
+        <StationMap
+          stations={stationsQ.data}
+          center={{ lat: lat as number, lng: lng as number }}
+          onSelect={openStation}
+        />
       ) : (
         stationsQ.data.map((s) => (
           <StationRow
@@ -187,23 +226,7 @@ export default function MapTab() {
               familyId &&
               toggleFav.mutate({ stationExtId: s.statId, on: !(favsQ.data?.has(s.statId) ?? false) })
             }
-            onPress={() =>
-              router.push({
-                pathname: '/station/[id]',
-                params: {
-                  id: s.statId,
-                  nm: s.statNm,
-                  addr: s.addr ?? '',
-                  busi: s.busiNm ?? '',
-                  avail: String(s.available),
-                  total: String(s.total),
-                  free: s.parkingFree ? '1' : '0',
-                  dist: s.distanceKm != null ? s.distanceKm.toFixed(1) : '',
-                  ft: s.floorType ?? '',
-                  fn: s.floorNum != null ? String(s.floorNum) : '',
-                },
-              })
-            }
+            onPress={() => openStation(s)}
           />
         ))
       )}
