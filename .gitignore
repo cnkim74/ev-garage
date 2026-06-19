@@ -31,7 +31,15 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
+!.env.example
+
+# macOS AppleDouble (외부 볼륨에서 생성)
+._*
+
+# Claude Code 로컬 설정
+.claude/
 
 # typescript
 *.tsbuildinfo
