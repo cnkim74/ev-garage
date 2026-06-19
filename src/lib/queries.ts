@@ -142,3 +142,127 @@ export function useAddChargeLog() {
     },
   });
 }
+
+// ── 충전소(공공 API 프록시) ──────────────────────────────────
+export interface StationCharger {
+  chgerId: string;
+  type: string | null;
+  stat: string | null;
+  statUpdDt: string | null;
+}
+export interface Station {
+  statId: string;
+  statNm: string;
+  addr: string | null;
+  lat: number | null;
+  lng: number | null;
+  busiNm: string | null;
+  parkingFree: boolean;
+  chargers: StationCharger[];
+  available: number;
+  total: number;
+  distanceKm: number | null;
+}
+
+export function useNearbyStations(params: {
+  lat?: number;
+  lng?: number;
+  zcode?: string;
+  freeOnly?: boolean;
+  enabled?: boolean;
+}) {
+  const { lat, lng, zcode, freeOnly, enabled = true } = params;
+  return useQuery({
+    queryKey: ['stations', lat, lng, zcode, freeOnly],
+    enabled: enabled && lat != null && lng != null,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data, error } = await supabase.functions.invoke('charger-stations', {
+        body: { lat, lng, zcode, freeOnly, limit: 50 },
+      });
+      if (error) throw new Error(error.message ?? '충전소 조회 실패');
+      if (data?.error) throw new Error(data.error);
+      return (data?.stations ?? []) as Station[];
+    },
+  });
+}
+
+// ── 즐겨찾기 ─────────────────────────────────────────────────
+export function useFavorites(familyId?: string | null) {
+  return useQuery({
+    queryKey: ['favorites', familyId],
+    enabled: !!familyId,
+    queryFn: async () => {
+      const { data, error } = await supabase.from('favorites').select('station_ext_id');
+      if (error) throw error;
+      return new Set((data ?? []).map((r) => r.station_ext_id));
+    },
+  });
+}
+
+export function useToggleFavorite(familyId?: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (v: { stationExtId: string; on: boolean }) => {
+      if (v.on) {
+        const { error } = await supabase
+          .from('favorites')
+          .insert({ family_id: familyId!, station_ext_id: v.stationExtId });
+        if (error && error.code !== '23505') throw error; // 중복 무시
+      } else {
+        const { error } = await supabase
+          .from('favorites')
+          .delete()
+          .eq('family_id', familyId!)
+          .eq('station_ext_id', v.stationExtId);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['favorites'] }),
+  });
+}
+
+// ── 충전소 도착 난이도 메모(위키) ────────────────────────────
+export type StationNote = Database['public']['Tables']['station_notes']['Row'];
+export type StationNoteKind = 'parking' | 'access' | 'tip';
+
+export function useStationNotes(stationExtId?: string) {
+  return useQuery({
+    queryKey: ['station_notes', stationExtId],
+    enabled: !!stationExtId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('station_notes')
+        .select('*')
+        .eq('station_ext_id', stationExtId!)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data as StationNote[];
+    },
+  });
+}
+
+export function useAddStationNote() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (n: {
+      stationExtId: string;
+      familyId: string | null;
+      kind: StationNoteKind;
+      content: string;
+      photoPath?: string | null;
+      createdBy?: string | null;
+    }) => {
+      const { error } = await supabase.from('station_notes').insert({
+        station_ext_id: n.stationExtId,
+        family_id: n.familyId,
+        kind: n.kind,
+        content: n.content,
+        photo_path: n.photoPath ?? null,
+        created_by: n.createdBy ?? null,
+      });
+      if (error) throw error;
+    },
+    onSuccess: (_d, n) => qc.invalidateQueries({ queryKey: ['station_notes', n.stationExtId] }),
+  });
+}
