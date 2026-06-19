@@ -158,7 +158,9 @@ export interface Station {
   lng: number | null;
   busiNm: string | null;
   parkingFree: boolean;
-  chargers: StationCharger[];
+  floorType?: string | null; // 'F' 지상 | 'B' 지하 (공공 데이터)
+  floorNum?: number | null;
+  chargers?: StationCharger[];
   available: number;
   total: number;
   distanceKm: number | null;

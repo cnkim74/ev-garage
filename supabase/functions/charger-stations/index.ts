@@ -1,44 +1,37 @@
-// 한국환경공단 전기차 충전소 정보(공공데이터포털 15076352) 프록시.
-// serviceKey 는 서버 시크릿(DATA_GO_KR_KEY)으로만 보관하고, 정규화된 JSON 을 돌려준다.
+// 충전소 조회 — read-through 캐시.
+// 1) charging_stations 테이블에서 해당 zcode 데이터를 읽는다(빠름).
+// 2) 캐시가 없거나 오래되면(>TTL) 공공 API(data.go.kr, 느림)를 1회 호출해 채우고 반환.
+// 3) 거리 계산·정렬·필터는 메모리에서 처리.
 //
 // 배포:  supabase functions deploy charger-stations
-// 시크릿: supabase secrets set DATA_GO_KR_KEY=발급받은_일반(Decoding)_인증키
-//
-// 호출(앱): supabase.functions.invoke('charger-stations',
-//             { body: { lat, lng, zcode?, freeOnly?, limit? } })
-//
-// ⚠️ 발급 후 실제 응답으로 파라미터·필드명(stat 코드 등)을 한번 확인해 보정할 것.
+// 시크릿: DATA_GO_KR_KEY (공공 API). SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY 는 자동 주입.
 
+import { createClient } from 'npm:@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
 
 const BASE = 'http://apis.data.go.kr/B552584/EvCharger/getChargerInfo';
+const TTL_MS = 60 * 60 * 1000; // 1시간
 
-interface Charger {
-  chgerId: string;
-  type: string | null;
-  stat: string | null; // 1통신이상 2충전대기 3충전중 4운영중지 5점검중 9미확인
-  statUpdDt: string | null;
-}
-interface Station {
-  statId: string;
-  statNm: string;
+interface StationRow {
+  stat_id: string;
+  stat_nm: string | null;
   addr: string | null;
   lat: number | null;
   lng: number | null;
-  busiNm: string | null;
-  parkingFree: boolean;
-  chargers: Charger[];
-  available: number; // 충전대기(2) 대수
+  busi_nm: string | null;
+  parking_free: boolean;
+  zcode: string;
+  floor_type: string | null;
+  floor_num: number | null;
+  available: number;
   total: number;
-  distanceKm: number | null;
+  synced_at?: string;
 }
 
-// <tag>value</tag> 추출 (CDATA 포함)
 function tag(block: string, name: string): string | null {
   const m = new RegExp(`<${name}>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?</${name}>`).exec(block);
   return m ? m[1].trim() : null;
 }
-
 function haversineKm(aLat: number, aLng: number, bLat: number, bLng: number): number {
   const R = 6371;
   const dLat = ((bLat - aLat) * Math.PI) / 180;
@@ -47,6 +40,45 @@ function haversineKm(aLat: number, aLng: number, bLat: number, bLng: number): nu
     Math.sin(dLat / 2) ** 2 +
     Math.cos((aLat * Math.PI) / 180) * Math.cos((bLat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+}
+
+async function fetchFromPublic(zcode: string, key: string): Promise<StationRow[]> {
+  const rawKey = key.trim();
+  const serviceKey = rawKey.includes('%') ? rawKey : encodeURIComponent(rawKey);
+  const url = `${BASE}?serviceKey=${serviceKey}&pageNo=1&numOfRows=800&zcode=${zcode}`;
+  const resp = await fetch(url);
+  const text = await resp.text();
+  if (!resp.ok) throw new Error(`공공 API ${resp.status}`);
+
+  const items = [...text.matchAll(/<item>([\s\S]*?)<\/item>/g)].map((m) => m[1]);
+  const byStation = new Map<string, StationRow>();
+  for (const it of items) {
+    const statId = tag(it, 'statId');
+    if (!statId) continue;
+    const sLat = parseFloat(tag(it, 'lat') ?? '');
+    const sLng = parseFloat(tag(it, 'lng') ?? '');
+    let s = byStation.get(statId);
+    if (!s) {
+      s = {
+        stat_id: statId,
+        stat_nm: tag(it, 'statNm'),
+        addr: tag(it, 'addr'),
+        lat: Number.isFinite(sLat) ? sLat : null,
+        lng: Number.isFinite(sLng) ? sLng : null,
+        busi_nm: tag(it, 'busiNm'),
+        parking_free: (tag(it, 'parkingFree') ?? '').toUpperCase() === 'Y',
+        zcode,
+        floor_type: tag(it, 'floorType'),
+        floor_num: parseInt(tag(it, 'floorNum') ?? '', 10) || null,
+        available: 0,
+        total: 0,
+      };
+      byStation.set(statId, s);
+    }
+    s.total += 1;
+    if (tag(it, 'stat') === '2') s.available += 1;
+  }
+  return [...byStation.values()];
 }
 
 Deno.serve(async (req: Request) => {
@@ -58,78 +90,70 @@ Deno.serve(async (req: Request) => {
     });
 
   try {
-    const key = Deno.env.get('DATA_GO_KR_KEY');
-    if (!key) return json({ error: 'DATA_GO_KR_KEY 가 설정되지 않았습니다.' }, 500);
-
-    const { lat, lng, zcode, freeOnly, limit, numOfRows } = await req.json().catch(() => ({}));
-    if (typeof lat !== 'number' || typeof lng !== 'number') {
-      return json({ error: 'lat, lng(숫자)이 필요합니다.' }, 400);
+    const { lat, lng, zcode, freeOnly, limit } = await req.json().catch(() => ({}));
+    if (typeof lat !== 'number' || typeof lng !== 'number' || !zcode) {
+      return json({ error: 'lat, lng(숫자)과 zcode 가 필요합니다.' }, 400);
     }
 
-    // serviceKey 인코딩 자동 처리:
-    // - Encoding 키(이미 %2B 등 포함) → 그대로 사용(이중 인코딩 방지)
-    // - Decoding 키(원문) → encodeURIComponent
-    const rawKey = key.trim();
-    const serviceKey = rawKey.includes('%') ? rawKey : encodeURIComponent(rawKey);
-    // 공공 API가 zcode 조회 시 느려서 건수를 제한(기본 250). 클라이언트가 조절 가능.
-    const rows = Math.min(Math.max(parseInt(String(numOfRows), 10) || 250, 10), 1000);
-    const rest = new URLSearchParams({ pageNo: '1', numOfRows: String(rows) });
-    if (zcode) rest.set('zcode', String(zcode)); // 시도코드(2자리). 없으면 전국(느릴 수 있음)
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    );
 
-    const resp = await fetch(`${BASE}?serviceKey=${serviceKey}&${rest.toString()}`);
-    const text = await resp.text();
-    if (!resp.ok) return json({ error: `공공 API 오류 ${resp.status}`, detail: text.slice(0, 300) }, 502);
+    // 1) 캐시 읽기
+    const { data: cached } = await supabase
+      .from('charging_stations')
+      .select('*')
+      .eq('zcode', String(zcode));
 
-    // XML <item> 파싱 (charger 단위 행 → station 단위로 그룹)
-    const items = [...text.matchAll(/<item>([\s\S]*?)<\/item>/g)].map((m) => m[1]);
-    if (items.length === 0) {
-      const msg = tag(text, 'resultMsg') ?? tag(text, 'returnAuthMsg');
-      return json({ stations: [], note: msg ?? '결과 없음 (zcode/키 확인)' });
-    }
+    let rows: StationRow[] = cached ?? [];
+    const fresh =
+      rows.length > 0 &&
+      rows.some((r) => r.synced_at && new Date(r.synced_at).getTime() > Date.now() - TTL_MS);
 
-    const byStation = new Map<string, Station>();
-    for (const it of items) {
-      const statId = tag(it, 'statId');
-      if (!statId) continue;
-      const sLat = parseFloat(tag(it, 'lat') ?? '');
-      const sLng = parseFloat(tag(it, 'lng') ?? '');
-      let s = byStation.get(statId);
-      if (!s) {
-        s = {
-          statId,
-          statNm: tag(it, 'statNm') ?? '',
-          addr: tag(it, 'addr'),
-          lat: Number.isFinite(sLat) ? sLat : null,
-          lng: Number.isFinite(sLng) ? sLng : null,
-          busiNm: tag(it, 'busiNm'),
-          parkingFree: (tag(it, 'parkingFree') ?? '').toUpperCase() === 'Y',
-          chargers: [],
-          available: 0,
-          total: 0,
-          distanceKm: null,
-        };
-        byStation.set(statId, s);
+    // 2) 없거나 오래되면 공공 API 로 채움
+    if (!fresh) {
+      const key = Deno.env.get('DATA_GO_KR_KEY');
+      if (!key) {
+        if (rows.length === 0) return json({ error: 'DATA_GO_KR_KEY 미설정' }, 500);
+      } else {
+        try {
+          const fetched = await fetchFromPublic(String(zcode), key);
+          if (fetched.length > 0) {
+            const now = new Date().toISOString();
+            const withTs = fetched.map((r) => ({ ...r, synced_at: now }));
+            await supabase.from('charging_stations').upsert(withTs, { onConflict: 'stat_id' });
+            rows = withTs;
+          }
+        } catch (_e) {
+          // 공공 API 실패 시 기존 캐시(있으면)로 폴백
+          if (rows.length === 0) return json({ error: '충전소 데이터를 불러오지 못했어요.' }, 502);
+        }
       }
-      const stat = tag(it, 'stat');
-      s.chargers.push({
-        chgerId: tag(it, 'chgerId') ?? '',
-        type: tag(it, 'chgerType'),
-        stat,
-        statUpdDt: tag(it, 'statUpdDt'),
-      });
-      s.total += 1;
-      if (stat === '2') s.available += 1; // 충전대기 = 사용 가능
     }
 
-    let stations = [...byStation.values()];
-    if (freeOnly) stations = stations.filter((s) => s.parkingFree);
-    for (const s of stations) {
-      s.distanceKm = s.lat != null && s.lng != null ? haversineKm(lat, lng, s.lat, s.lng) : null;
-    }
+    // 3) 거리 계산·필터·정렬
+    let stations = rows
+      .filter((r) => (freeOnly ? r.parking_free : true))
+      .map((r) => ({
+        statId: r.stat_id,
+        statNm: r.stat_nm ?? '',
+        addr: r.addr,
+        lat: r.lat,
+        lng: r.lng,
+        busiNm: r.busi_nm,
+        parkingFree: r.parking_free,
+        floorType: r.floor_type,
+        floorNum: r.floor_num,
+        available: r.available ?? 0,
+        total: r.total ?? 0,
+        distanceKm: r.lat != null && r.lng != null ? haversineKm(lat, lng, r.lat, r.lng) : null,
+      }));
     stations.sort((a, b) => (a.distanceKm ?? 9e9) - (b.distanceKm ?? 9e9));
     const take = typeof limit === 'number' && limit > 0 ? limit : 50;
 
-    return json({ stations: stations.slice(0, take) });
+    const syncedAt = rows.length ? rows[0].synced_at ?? null : null;
+    return json({ stations: stations.slice(0, take), syncedAt, cached: fresh });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : '알 수 없는 오류' }, 500);
   }
