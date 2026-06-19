@@ -5,6 +5,7 @@ import type { Database } from '../types/database';
 
 export type Vehicle = Database['public']['Tables']['vehicles']['Row'];
 export type RentContract = Database['public']['Tables']['rent_contracts']['Row'];
+export type ChargeLog = Database['public']['Tables']['charge_logs']['Row'];
 
 /** 가족 차량 목록 (생성순) */
 export function useVehicles(familyId?: string | null) {
@@ -93,6 +94,51 @@ export function useUpsertContract() {
     },
     onSuccess: (_d, c) => {
       qc.invalidateQueries({ queryKey: ['contract', c.vehicleId] });
+    },
+  });
+}
+
+/** 가족 충전 기록 (RLS 로 가족 범위 자동 한정) */
+export function useChargeLogs(familyId?: string | null) {
+  return useQuery({
+    queryKey: ['charge_logs', familyId],
+    enabled: !!familyId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('charge_logs')
+        .select('*')
+        .order('charged_at', { ascending: false });
+      if (error) throw error;
+      return data as ChargeLog[];
+    },
+  });
+}
+
+/** 충전 기록 추가 */
+export function useAddChargeLog() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (c: {
+      vehicleId: string;
+      kwh: number | null;
+      costKrw: number | null;
+      operator: string | null;
+      chargedAt?: string | null;
+      recordedBy?: string | null;
+    }) => {
+      const row: Database['public']['Tables']['charge_logs']['Insert'] = {
+        vehicle_id: c.vehicleId,
+        kwh: c.kwh,
+        cost_krw: c.costKrw,
+        operator: c.operator,
+        recorded_by: c.recordedBy ?? null,
+        ...(c.chargedAt ? { charged_at: c.chargedAt } : {}),
+      };
+      const { error } = await supabase.from('charge_logs').insert(row);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['charge_logs'] });
     },
   });
 }
