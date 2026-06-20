@@ -14,6 +14,7 @@ module.exports = {
         leaf: '#3f8f5f', // --green   여유 / 사용가능
         amber: '#c8961f', // --amber   주의 / 혼잡
         ocean: '#3a6ea5', // --blue    정보 / 내 위치
+        tesla: '#e82127', // 테슬라 슈퍼차저
         // 보조 톤 (크림 위 카드/구분선)
         sand: '#e9e4d8',
         muted: '#8a857b',

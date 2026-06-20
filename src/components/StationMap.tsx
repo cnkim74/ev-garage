@@ -36,6 +36,7 @@ function loadKakao(key: string): Promise<any> {
 }
 
 function statusColor(s: Station): string {
+  if (s.isTesla) return colors.tesla;
   return s.available > 0 ? colors.leaf : s.total > 0 ? colors.amber : colors.muted;
 }
 
@@ -47,10 +48,12 @@ export function StationMap({
   stations,
   center,
   onSelect,
+  fitBounds = false,
 }: {
   stations: Station[];
   center: { lat: number; lng: number };
   onSelect: (s: Station) => void;
+  fitBounds?: boolean; // true면 모든 핀이 보이도록 지도 범위 자동 맞춤(발견용)
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const stateRef = useRef<{ kakao?: any; map?: any; overlays: any[] }>({ overlays: [] });
@@ -79,7 +82,7 @@ export function StationMap({
   useEffect(() => {
     drawMarkers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stations, center.lat, center.lng]);
+  }, [stations, center.lat, center.lng, fitBounds]);
 
   function drawMarkers() {
     const { kakao, map } = stateRef.current;
@@ -87,12 +90,21 @@ export function StationMap({
     stateRef.current.overlays.forEach((o) => o.setMap(null));
     stateRef.current.overlays = [];
 
-    map.setCenter(new kakao.maps.LatLng(center.lat, center.lng));
+    const pts = stations.filter((s) => s.lat != null && s.lng != null);
+    if (fitBounds && pts.length) {
+      // 내 위치 + 가까운 8곳에 맞춰 지역 단위로 (전국 다 넣으면 과도하게 축소됨)
+      const bounds = new kakao.maps.LatLngBounds();
+      bounds.extend(new kakao.maps.LatLng(center.lat, center.lng));
+      pts.slice(0, 8).forEach((s) => bounds.extend(new kakao.maps.LatLng(s.lat, s.lng)));
+      map.setBounds(bounds, 48);
+    } else {
+      map.setCenter(new kakao.maps.LatLng(center.lat, center.lng));
+    }
 
     stations.forEach((s) => {
       if (s.lat == null || s.lng == null) return;
       const el = document.createElement('div');
-      el.textContent = String(s.available);
+      el.textContent = s.isTesla ? 'T' : String(s.available);
       el.style.cssText = [
         'min-width:22px',
         'height:22px',

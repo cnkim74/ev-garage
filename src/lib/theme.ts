@@ -6,6 +6,7 @@ export const colors = {
   leaf: '#3f8f5f',
   amber: '#c8961f',
   ocean: '#3a6ea5',
+  tesla: '#e82127', // 테슬라 슈퍼차저 핀/배지
   sand: '#e9e4d8',
   muted: '#8a857b',
 } as const;

@@ -1,12 +1,13 @@
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 
 import { Button } from '../../components/Button';
 import { Card, ScreenHeader } from '../../components/Card';
 import { Screen } from '../../components/Screen';
 import { StationMap } from '../../components/StationMap';
+import { teslaSuperchargersNear } from '../../data/teslaSuperchargers';
 import {
   useFavorites,
   useNearbyStations,
@@ -74,6 +75,7 @@ export default function MapTab() {
   const [gps, setGps] = useState<{ lat: number; lng: number } | null>(null);
   const [region, setRegion] = useState<Region | null>(null); // 선택 시 GPS 대신 사용
   const [freeOnly, setFreeOnly] = useState(false);
+  const [teslaOnly, setTeslaOnly] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
 
   function openStation(s: Station) {
@@ -90,6 +92,7 @@ export default function MapTab() {
         dist: s.distanceKm != null ? s.distanceKm.toFixed(1) : '',
         ft: s.floorType ?? '',
         fn: s.floorNum != null ? String(s.floorNum) : '',
+        tesla: s.isTesla ? '1' : '',
       },
     });
   }
@@ -129,6 +132,20 @@ export default function MapTab() {
   const favsQ = useFavorites(familyId);
   const toggleFav = useToggleFavorite(familyId);
 
+  // 테슬라 슈퍼차저(OSM 시드)를 거리순으로, 공공 충전소와 병합
+  const tesla = useMemo<Station[]>(
+    () => (ready ? teslaSuperchargersNear({ lat: lat as number, lng: lng as number }) : []),
+    [ready, lat, lng],
+  );
+  const displayStations = useMemo<Station[]>(() => {
+    if (teslaOnly) return tesla;
+    const pub = stationsQ.data ?? [];
+    if (freeOnly) return pub; // 주차무료 필터 시 테슬라(미상) 제외
+    return [...pub, ...tesla].sort(
+      (a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity),
+    );
+  }, [teslaOnly, freeOnly, stationsQ.data, tesla]);
+
   return (
     <Screen>
       <ScreenHeader title="충전소" subtitle="내 주변 충전소 · 실시간 사용가능" />
@@ -158,11 +175,24 @@ export default function MapTab() {
 
       <View className="mb-3 flex-row items-center gap-2">
         <Pressable
-          onPress={() => setFreeOnly((v) => !v)}
+          onPress={() => {
+            setFreeOnly((v) => !v);
+            setTeslaOnly(false);
+          }}
           className={`rounded-pill border px-4 py-2 ${
             freeOnly ? 'border-leaf bg-leaf/10' : 'border-sand'
           }`}>
           <Text className={freeOnly ? 'text-leaf' : 'text-muted'}>주차비 무료만</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => {
+            setTeslaOnly((v) => !v);
+            setFreeOnly(false);
+          }}
+          className={`rounded-pill border px-4 py-2 ${
+            teslaOnly ? 'border-tesla bg-tesla/10' : 'border-sand'
+          }`}>
+          <Text className={teslaOnly ? 'text-tesla' : 'text-muted'}>⚡ 테슬라</Text>
         </Pressable>
         <Text className="text-xs text-muted">
           {usingGps ? '내 위치 기준 거리순' : region ? `${region.name} 기준 거리순` : ''}
@@ -187,37 +217,37 @@ export default function MapTab() {
           <ActivityIndicator color={colors.terracotta} />
           <Text className="ml-2 text-sm text-muted">위치 확인 중… (또는 위 지역을 선택하세요)</Text>
         </View>
-      ) : stationsQ.isLoading ? (
+      ) : !teslaOnly && stationsQ.isLoading ? (
         <View className="flex-row items-center">
           <ActivityIndicator color={colors.terracotta} />
           <Text className="ml-2 text-sm text-muted">충전소 불러오는 중…</Text>
         </View>
-      ) : stationsQ.isError ? (
+      ) : !teslaOnly && stationsQ.isError ? (
         <Card>
           <Text className="text-sm font-semibold text-ink">충전소를 불러오지 못했어요</Text>
           <Text className="mt-1 text-xs text-muted">
             {(stationsQ.error as Error)?.message}
           </Text>
           <Text className="mt-2 text-xs text-muted">
-            공공데이터포털 인증키(charger-stations 함수의 DATA_GO_KR_KEY)가 설정되어야 실제
-            충전소가 표시됩니다.
+            공공 충전소가 안 보여도 위 “⚡ 테슬라” 를 누르면 슈퍼차저는 볼 수 있어요.
           </Text>
           <View className="mt-3">
             <Button variant="outline" label="다시 시도" onPress={() => stationsQ.refetch()} />
           </View>
         </Card>
-      ) : !stationsQ.data?.length ? (
+      ) : !displayStations.length ? (
         <Card>
           <Text className="text-sm text-muted">주변에 표시할 충전소가 없어요.</Text>
         </Card>
       ) : viewMode === 'map' ? (
         <StationMap
-          stations={stationsQ.data}
+          stations={displayStations}
           center={{ lat: lat as number, lng: lng as number }}
           onSelect={openStation}
+          fitBounds={teslaOnly}
         />
       ) : (
-        stationsQ.data.map((s) => (
+        displayStations.map((s) => (
           <StationRow
             key={s.statId}
             station={s}
@@ -250,15 +280,27 @@ function StationRow({
     <Card className="mb-3">
       <View className="flex-row items-start justify-between">
         <Pressable className="flex-1 pr-2" onPress={onPress}>
-          <Text className="text-base font-bold text-ink">{s.statNm}</Text>
+          <View className="flex-row items-center gap-1.5">
+            {s.isTesla ? <Text className="text-tesla">⚡</Text> : null}
+            <Text className="text-base font-bold text-ink">{s.statNm}</Text>
+          </View>
           <Text className="mt-0.5 text-xs text-muted">
             {s.busiNm ?? '—'}
             {s.distanceKm != null ? ` · ${s.distanceKm.toFixed(1)}km` : ''}
           </Text>
           <View className="mt-2 flex-row items-center gap-2">
-            <Text className="text-sm font-semibold" style={{ color: availColor }}>
-              사용가능 {s.available}/{s.total}
-            </Text>
+            {s.isTesla ? (
+              <>
+                <Text className="text-sm font-semibold text-tesla">
+                  슈퍼차저 {s.total > 0 ? `${s.total}기` : ''}
+                </Text>
+                <Text className="text-[11px] text-muted">실시간 정보 없음</Text>
+              </>
+            ) : (
+              <Text className="text-sm font-semibold" style={{ color: availColor }}>
+                사용가능 {s.available}/{s.total}
+              </Text>
+            )}
             {s.parkingFree ? (
               <View className="rounded-pill bg-leaf/10 px-2 py-0.5">
                 <Text className="text-[11px] text-leaf">주차무료</Text>

@@ -164,6 +164,7 @@ export interface Station {
   available: number;
   total: number;
   distanceKm: number | null;
+  isTesla?: boolean; // 테슬라 슈퍼차저 시드(OSM) — 실시간 사용가능 없음, total=충전기 수
 }
 
 export function useNearbyStations(params: {

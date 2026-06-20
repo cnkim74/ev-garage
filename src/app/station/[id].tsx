@@ -56,7 +56,9 @@ export default function StationDetail() {
     dist?: string;
     ft?: string; // floorType F/B (공공)
     fn?: string; // floorNum (공공)
+    tesla?: string; // '1' = 테슬라 슈퍼차저(실시간 없음)
   }>();
+  const isTesla = params.tesla === '1';
   const stationId = params.id;
   const { profile } = useAuth();
   const familyId = profile?.family_id ?? null;
@@ -86,14 +88,29 @@ export default function StationDetail() {
       <Card className="mb-4">
         <View className="flex-row items-center justify-between">
           <View>
-            <Text className="text-sm text-muted">실시간 사용가능</Text>
-            <Text className="mt-1 text-2xl font-bold" style={{ color: availColor }}>
-              {avail}/{total}대
-            </Text>
-            <Text className="mt-1 text-xs text-muted">
-              {params.busi || '—'}
-              {params.dist ? ` · ${params.dist}km` : ''}
-            </Text>
+            {isTesla ? (
+              <>
+                <Text className="text-sm text-muted">테슬라 슈퍼차저</Text>
+                <Text className="mt-1 text-2xl font-bold" style={{ color: colors.tesla }}>
+                  {total > 0 ? `${total}기` : '슈퍼차저'}
+                </Text>
+                <Text className="mt-1 text-xs text-muted">
+                  실시간 사용가능은 테슬라 앱에서만 확인 가능
+                  {params.dist ? ` · ${params.dist}km` : ''}
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text className="text-sm text-muted">실시간 사용가능</Text>
+                <Text className="mt-1 text-2xl font-bold" style={{ color: availColor }}>
+                  {avail}/{total}대
+                </Text>
+                <Text className="mt-1 text-xs text-muted">
+                  {params.busi || '—'}
+                  {params.dist ? ` · ${params.dist}km` : ''}
+                </Text>
+              </>
+            )}
           </View>
           <Pressable
             onPress={() => familyId && toggleFav.mutate({ stationExtId: stationId, on: !faved })}
