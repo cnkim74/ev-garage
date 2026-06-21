@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Text, View } from 'react-native';
+import { Platform, Text, View } from 'react-native';
 
 import { Button } from '../../components/Button';
 import { Card, ScreenHeader } from '../../components/Card';
@@ -43,6 +43,23 @@ export default function SignIn() {
       notify('오류', e?.message ?? '로그인에 실패했습니다.');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function oauth(provider: 'google') {
+    if (Platform.OS !== 'web') {
+      notify('준비 중', '소셜 로그인은 현재 웹에서 지원돼요. (폰 네이티브는 추후)');
+      return;
+    }
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: { redirectTo: window.location.origin },
+      });
+      if (error) throw error;
+      // 성공 시 구글로 리다이렉트됨
+    } catch (e: any) {
+      notify('오류', e?.message ?? '소셜 로그인에 실패했습니다.');
     }
   }
 
@@ -99,6 +116,27 @@ export default function SignIn() {
                 : '이미 계정이 있나요? 로그인'
             }
             onPress={() => setMode(mode === 'signIn' ? 'signUp' : 'signIn')}
+          />
+        </View>
+
+        <View className="my-3 flex-row items-center gap-3">
+          <View className="h-px flex-1 bg-sand" />
+          <Text className="text-xs text-muted">또는</Text>
+          <View className="h-px flex-1 bg-sand" />
+        </View>
+
+        <Button
+          variant="outline"
+          label="구글로 계속"
+          onPress={() => oauth('google')}
+          disabled={!isSupabaseConfigured}
+        />
+        <View className="mt-2">
+          <Button
+            variant="outline"
+            label="네이버로 계속 (준비 중)"
+            onPress={() => notify('준비 중', '네이버 로그인은 곧 추가됩니다. 먼저 구글부터 활성화해요.')}
+            disabled={!isSupabaseConfigured}
           />
         </View>
       </Card>

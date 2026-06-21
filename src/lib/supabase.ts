@@ -23,7 +23,8 @@ export const supabase = createClient<Database>(
       storage: Platform.OS === 'web' ? undefined : AsyncStorage,
       autoRefreshToken: true,
       persistSession: true,
-      detectSessionInUrl: false,
+      // 웹에서 OAuth(구글 등) 리다이렉트 후 URL 의 세션을 자동 감지
+      detectSessionInUrl: Platform.OS === 'web',
     },
   },
 );
